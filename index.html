@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WiFi Vision — Signal World</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --cyan: #00ffe7;
+    --green: #39ff14;
+    --orange: #ff6a00;
+    --bg: #030a07;
+    --grid: rgba(0,255,180,0.04);
+    --panel: rgba(0,255,180,0.05);
+    --border: rgba(0,255,180,0.18);
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--cyan);
+    font-family: 'Share Tech Mono', monospace;
+    min-height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Animated grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* CRT vignette */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.85) 100%);
+    pointer-events: none;
+    z-index: 100;
+  }
+
+  /* Top bar */
+  #topbar {
+    position: relative;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(0,15,10,0.9);
+    backdrop-filter: blur(6px);
+    flex-shrink: 0;
+  }
+
+  #topbar .logo {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 1.1rem;
+    letter-spacing: 0.15em;
+    color: var(--cyan);
+    text-shadow: 0 0 12px var(--cyan);
+  }
+
+  #topbar .logo span { color: var(--green); }
+
+  .status-row {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+  }
+
+  .status-dot {
+    display: inline-block;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: blink 1.4s infinite;
+  }
+
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+  /* Main layout */
+  #main {
+    position: relative;
+    z-index: 5;
+    display: flex;
+    flex: 1;
+    gap: 0;
+    overflow: hidden;
+    height: calc(100vh - 48px);
+  }
+
+  /* Left panel */
+  #left-panel {
+    width: 180px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--border);
+    background: rgba(0,15,10,0.85);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 14px 12px;
+    overflow: hidden;
+  }
+
+  .panel-label {
+    font-size: 0.6rem;
+    letter-spacing: 0.14em;
+    color: rgba(0,255,180,0.5);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+
+  /* Signal bars */
+  .signal-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 30px;
+  }
+  .bar {
+    flex: 1;
+    background: var(--cyan);
+    box-shadow: 0 0 6px var(--cyan);
+    border-radius: 1px 1px 0 0;
+    transition: height 0.3s ease;
+  }
+
+  /* Mini radar */
+  #mini-radar {
+    width: 100%;
+    aspect-ratio: 1;
+    position: relative;
+  }
+
+  /* Meter */
+  .meter-wrap { display: flex; flex-direction: column; gap: 5px; }
+  .meter-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.65rem; }
+  .meter-bar-bg {
+    width: 100%;
+    height: 4px;
+    background: rgba(0,255,180,0.1);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .meter-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--green), var(--cyan));
+    box-shadow: 0 0 6px var(--cyan);
+    border-radius: 2px;
+    transition: width 0.4s ease;
+  }
+
+  /* Center canvas area */
+  #canvas-wrap {
+    flex: 1;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background: #000;
+  }
+
+  video { display: none; }
+
+  #output-canvas {
+    max-width: 100%;
+    max-height: 100%;
+    display: block;
+    object-fit: contain;
+  }
+
+  /* Scan line overlay */
+  #scanline {
+    position: absolute;
+    left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+    box-shadow: 0 0 18px 4px var(--cyan);
+    opacity: 0.7;
+    pointer-events: none;
+    transition: top 0.05s linear;
+  }
+
+  /* Corner frames */
+  .corner { position: absolute; width: 24px; height: 24px; }
+  .corner.tl { top: 10px; left: 10px; border-top: 2px solid var(--cyan); border-left: 2px solid var(--cyan); }
+  .corner.tr { top: 10px; right: 10px; border-top: 2px solid var(--cyan); border-right: 2px solid var(--cyan); }
+  .corner.bl { bottom: 10px; left: 10px; border-bottom: 2px solid var(--cyan); border-left: 2px solid var(--cyan); }
+  .corner.br { bottom: 10px; right: 10px; border-bottom: 2px solid var(--cyan); border-right: 2px solid var(--cyan); }
+
+  /* Bottom info strip */
+  #bottom-strip {
+    position: absolute;
+    bottom: 10px; left: 50%;
+    transform: translateX(-50%);
+    display: flex; gap: 30px;
+    font-size: 0.6rem;
+    letter-spacing: 0.1em;
+    color: rgba(0,255,180,0.6);
+    pointer-events: none;
+  }
+
+  /* Right panel */
+  #right-panel {
+    width: 180px;
+    flex-shrink: 0;
+    border-left: 1px solid var(--border);
+    background: rgba(0,15,10,0.85);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 14px 12px;
+    overflow: hidden;
+  }
+
+  /* Detection log */
+  #log {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .log-entry {
+    font-size: 0.58rem;
+    color: rgba(0,255,180,0.5);
+    padding: 3px 0;
+    border-bottom: 1px solid rgba(0,255,180,0.06);
+    animation: fadeIn 0.3s ease;
+  }
+  .log-entry.alert { color: var(--orange); }
+  @keyframes fadeIn { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; } }
+
+  /* Mode toggle */
+  #mode-btns {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .mode-btn {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: rgba(0,255,180,0.5);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.62rem;
+    letter-spacing: 0.1em;
+    padding: 6px 8px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: all 0.2s;
+  }
+  .mode-btn.active, .mode-btn:hover {
+    background: rgba(0,255,180,0.12);
+    color: var(--cyan);
+    border-color: var(--cyan);
+    box-shadow: 0 0 8px rgba(0,255,180,0.2);
+  }
+
+  /* Permission screen */
+  #perm-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+  }
+  #perm-screen h1 {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.8rem;
+    letter-spacing: 0.2em;
+    color: var(--cyan);
+    text-shadow: 0 0 30px var(--cyan);
+    text-align: center;
+  }
+  #perm-screen p {
+    font-size: 0.8rem;
+    color: rgba(0,255,180,0.6);
+    text-align: center;
+    max-width: 320px;
+    line-height: 1.7;
+    letter-spacing: 0.06em;
+  }
+  #start-btn {
+    background: transparent;
+    border: 1px solid var(--cyan);
+    color: var(--cyan);
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.85rem;
+    letter-spacing: 0.2em;
+    padding: 14px 36px;
+    cursor: pointer;
+    text-transform: uppercase;
+    box-shadow: 0 0 20px rgba(0,255,180,0.2), inset 0 0 20px rgba(0,255,180,0.05);
+    transition: all 0.3s;
+    animation: pulse-btn 2s infinite;
+  }
+  #start-btn:hover {
+    background: rgba(0,255,180,0.1);
+    box-shadow: 0 0 40px rgba(0,255,180,0.4), inset 0 0 30px rgba(0,255,180,0.1);
+  }
+  #start-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  @keyframes pulse-btn { 0%,100%{box-shadow:0 0 20px rgba(0,255,180,0.2),inset 0 0 20px rgba(0,255,180,0.05)} 50%{box-shadow:0 0 40px rgba(0,255,180,0.4),inset 0 0 30px rgba(0,255,180,0.1)} }
+  
+  #cam-error {
+    color: #ff6a00;
+    font-size: 0.72rem;
+    text-align: center;
+    max-width: 300px;
+    line-height: 1.6;
+    display: none;
+    border: 1px solid rgba(255,106,0,0.3);
+    padding: 10px 16px;
+  }
+
+  .disclaimer {
+    font-size: 0.6rem;
+    color: rgba(0,255,180,0.3);
+    text-align: center;
+    max-width: 280px;
+    line-height: 1.6;
+  }
+
+  /* Frequency display */
+  #freq-display {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--cyan);
+    text-shadow: 0 0 14px var(--cyan);
+    letter-spacing: 0.05em;
+  }
+  #freq-display span { font-size: 0.6rem; color: rgba(0,255,180,0.5); vertical-align: super; }
+
+  .section-divider {
+    height: 1px;
+    background: var(--border);
+    width: 100%;
+  }
+</style>
+</head>
+<body>
+
+<!-- Permission Screen -->
+<div id="perm-screen">
+  <h1>WIFI<br>VISION</h1>
+  <p>Visualize your environment through simulated WiFi signal mapping. Camera access required to process motion and generate signal overlay.</p>
+  <button id="start-btn">INITIALIZE SIGNAL SCAN</button>
+  <div id="cam-error"></div>
+  <p class="disclaimer">⚠ Camera is processed locally on your device. No data is transmitted. This is a concept visualization — not real WiFi sensing hardware.</p>
+</div>
+
+<!-- Main UI -->
+<div id="topbar">
+  <div class="logo">WIFI<span>VISION</span> <span style="font-size:0.6rem;font-weight:400;opacity:0.5;font-family:'Share Tech Mono'">// SIGNAL WORLD v1.0</span></div>
+  <div class="status-row">
+    <span><span class="status-dot"></span> LIVE SCAN</span>
+    <span id="fps-counter">-- FPS</span>
+    <span id="clock">--:--:--</span>
+  </div>
+</div>
+
+<div id="main">
+  <!-- LEFT PANEL -->
+  <div id="left-panel">
+    <div>
+      <div class="panel-label">WiFi Freq</div>
+      <div id="freq-display">5.8<span>GHz</span></div>
+    </div>
+    <div class="section-divider"></div>
+    <div>
+      <div class="panel-label">Signal Strength</div>
+      <div class="signal-bars" id="signal-bars">
+        <div class="bar" style="height:60%"></div>
+        <div class="bar" style="height:80%"></div>
+        <div class="bar" style="height:55%"></div>
+        <div class="bar" style="height:90%"></div>
+        <div class="bar" style="height:70%"></div>
+        <div class="bar" style="height:85%"></div>
+        <div class="bar" style="height:65%"></div>
+      </div>
+    </div>
+    <div class="section-divider"></div>
+    <div>
+      <div class="panel-label">Radar</div>
+      <canvas id="mini-radar" width="156" height="156"></canvas>
+    </div>
+    <div class="section-divider"></div>
+    <div class="meter-wrap">
+      <div class="panel-label">Metrics</div>
+      <div class="meter-row">
+        <span>MOTION</span><span id="motion-val">0%</span>
+      </div>
+      <div class="meter-bar-bg"><div class="meter-bar-fill" id="motion-bar" style="width:0%"></div></div>
+      <div class="meter-row" style="margin-top:4px">
+        <span>NOISE</span><span id="noise-val">12%</span>
+      </div>
+      <div class="meter-bar-bg"><div class="meter-bar-fill" id="noise-bar" style="width:12%"></div></div>
+      <div class="meter-row" style="margin-top:4px">
+        <span>DEPTH</span><span id="depth-val">--</span>
+      </div>
+      <div class="meter-bar-bg"><div class="meter-bar-fill" id="depth-bar" style="width:45%"></div></div>
+    </div>
+  </div>
+
+  <!-- CENTER CANVAS -->
+  <div id="canvas-wrap">
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner bl"></div>
+    <div class="corner br"></div>
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="output-canvas"></canvas>
+    <div id="scanline"></div>
+    <div id="bottom-strip">
+      <span>LAT: 28.4°N</span>
+      <span id="signal-id">SIGNAL-ID: A3F2</span>
+      <span>CHANNEL: 11</span>
+      <span id="packet-count">PKT: 0</span>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div id="right-panel">
+    <div>
+      <div class="panel-label">Render Mode</div>
+      <div id="mode-btns">
+        <button class="mode-btn active" onclick="setMode('edge')">Edge Map</button>
+        <button class="mode-btn" onclick="setMode('thermal')">Thermal</button>
+        <button class="mode-btn" onclick="setMode('motion')">Motion Only</button>
+        <button class="mode-btn" onclick="setMode('ghost')">Ghost</button>
+      </div>
+    </div>
+    <div class="section-divider"></div>
+    <div>
+      <div class="panel-label">Detection Log</div>
+      <div id="log"></div>
+    </div>
+    <div class="section-divider"></div>
+    <div>
+      <div class="panel-label">Objects Detected</div>
+      <div id="object-list" style="font-size:0.62rem;display:flex;flex-direction:column;gap:4px;color:rgba(0,255,180,0.7)">
+        <span>Awaiting signal...</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('output-canvas');
+const ctx = canvas.getContext('2d');
+const radarCanvas = document.getElementById('mini-radar');
+const rCtx = radarCanvas.getContext('2d');
+const scanline = document.getElementById('scanline');
+const canvasWrap = document.getElementById('canvas-wrap');
+
+let mode = 'edge';
+let prevFrame = null;
+let scanY = 0;
+let scanDir = 1;
+let frameCount = 0;
+let lastFpsTime = Date.now();
+let motionLevel = 0;
+let radarAngle = 0;
+let packetCount = 0;
+let motionPixels = [];
+let running = false;
+
+const freqs = ['2.4', '5.0', '5.8', '6.0'];
+let freqIdx = 2;
+
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+}
+
+// Wire up button safely after DOM loads
+document.getElementById('start-btn').addEventListener('click', startCamera);
+
+async function startCamera() {
+  const btn = document.getElementById('start-btn');
+  const errBox = document.getElementById('cam-error');
+  btn.disabled = true;
+  btn.textContent = 'REQUESTING ACCESS...';
+  errBox.style.display = 'none';
+
+  // Check if browser supports getUserMedia at all
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    errBox.textContent = '❌ Your browser does not support camera access. Try Chrome or Firefox on desktop/Android.';
+    errBox.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'INITIALIZE SIGNAL SCAN';
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+    });
+    // Permission granted — now hide permission screen and start
+    document.getElementById('perm-screen').style.display = 'none';
+    video.srcObject = stream;
+    video.onloadedmetadata = () => {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      running = true;
+      requestAnimationFrame(tick);
+      runRadar();
+      runClock();
+      runSignalBars();
+      freqCycle();
+      addLog('Camera initialized', false);
+      addLog('Signal scan active', false);
+    };
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = 'RETRY SIGNAL SCAN';
+    if (err.name === 'NotAllowedError') {
+      errBox.textContent = '❌ Camera blocked. Go to site settings in your browser → find this site → set Camera to Allow → refresh page.';
+    } else if (err.name === 'NotFoundError') {
+      errBox.textContent = '❌ No camera found on this device.';
+    } else {
+      errBox.textContent = '❌ Error: ' + err.message;
+    }
+    errBox.style.display = 'block';
+  }
+}
+
+function tick() {
+  if (!running || video.readyState < 2) { requestAnimationFrame(tick); return; }
+
+  const W = canvas.width, H = canvas.height;
+
+  // Draw video to offscreen
+  const off = document.createElement('canvas');
+  off.width = W; off.height = H;
+  const oCtx = off.getContext('2d');
+  oCtx.drawImage(video, 0, 0, W, H);
+  const frame = oCtx.getImageData(0, 0, W, H);
+
+  // Motion detection
+  let motionSum = 0;
+  const motPixels = [];
+  if (prevFrame) {
+    for (let i = 0; i < frame.data.length; i += 16) {
+      const dr = Math.abs(frame.data[i] - prevFrame.data[i]);
+      const dg = Math.abs(frame.data[i+1] - prevFrame.data[i+1]);
+      const db = Math.abs(frame.data[i+2] - prevFrame.data[i+2]);
+      const diff = (dr + dg + db) / 3;
+      if (diff > 18) {
+        motionSum += diff;
+        motPixels.push({ x: (i/4) % W, y: Math.floor((i/4) / W) });
+      }
+    }
+  }
+  motionPixels = motPixels;
+  motionLevel = Math.min(100, Math.round(motionSum / (W * H / 16) * 3));
+  prevFrame = frame;
+
+  // Apply chosen visualization
+  if (mode === 'edge') renderEdge(frame, W, H);
+  else if (mode === 'thermal') renderThermal(frame, W, H);
+  else if (mode === 'motion') renderMotion(frame, W, H);
+  else if (mode === 'ghost') renderGhost(frame, W, H);
+
+  // Scan overlay
+  ctx.save();
+  const grd = ctx.createLinearGradient(0, scanY - 30, 0, scanY + 30);
+  grd.addColorStop(0, 'rgba(0,255,200,0)');
+  grd.addColorStop(0.5, 'rgba(0,255,200,0.08)');
+  grd.addColorStop(1, 'rgba(0,255,200,0)');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, scanY - 30, W, 60);
+  ctx.restore();
+
+  // Motion highlight dots
+  if (motionPixels.length > 0) {
+    ctx.save();
+    motionPixels.slice(0, 200).forEach(p => {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(57,255,20,0.5)';
+      ctx.fill();
+    });
+    ctx.restore();
+  }
+
+  // Scan line
+  scanY += 3 * scanDir;
+  if (scanY > H) scanDir = -1;
+  if (scanY < 0) scanDir = 1;
+  const wrapRect = canvasWrap.getBoundingClientRect();
+  const rendered = canvas.getBoundingClientRect();
+  const scaleY = rendered.height / H;
+  const topOff = rendered.top - wrapRect.top;
+  scanline.style.top = (topOff + scanY * scaleY) + 'px';
+
+  // FPS
+  frameCount++;
+  const now = Date.now();
+  if (now - lastFpsTime > 800) {
+    document.getElementById('fps-counter').textContent = Math.round(frameCount / ((now - lastFpsTime) / 1000)) + ' FPS';
+    frameCount = 0;
+    lastFpsTime = now;
+  }
+
+  // Metrics update
+  document.getElementById('motion-val').textContent = motionLevel + '%';
+  document.getElementById('motion-bar').style.width = motionLevel + '%';
+  const noise = 10 + Math.round(Math.random() * 8);
+  document.getElementById('noise-val').textContent = noise + '%';
+  document.getElementById('noise-bar').style.width = noise + '%';
+  document.getElementById('depth-val').textContent = (2.1 + Math.random() * 0.4).toFixed(1) + 'm';
+  document.getElementById('depth-bar').style.width = (40 + Math.random() * 30) + '%';
+
+  packetCount += Math.floor(Math.random() * 60 + 30);
+  document.getElementById('packet-count').textContent = 'PKT: ' + packetCount.toLocaleString();
+
+  // Motion logs
+  if (motionLevel > 15 && Math.random() < 0.05) {
+    addLog('Motion detected — ' + motionLevel + '%', true);
+    updateObjects();
+  }
+
+  requestAnimationFrame(tick);
+}
+
+function renderEdge(frame, W, H) {
+  // Draw base dark version
+  ctx.drawImage(video, 0, 0, W, H);
+  const base = ctx.getImageData(0, 0, W, H);
+
+  // Grayscale + edge detect via luminance
+  const data = frame.data;
+  const out = ctx.createImageData(W, H);
+  const od = out.data;
+
+  for (let y = 1; y < H - 1; y++) {
+    for (let x = 1; x < W - 1; x++) {
+      const idx = (y * W + x) * 4;
+
+      const lum = (px, ix) => {
+        const pi = px * 4;
+        return 0.299 * frame.data[pi] + 0.587 * frame.data[pi+1] + 0.114 * frame.data[pi+2];
+      };
+
+      const p = i => (y * W + x + i);
+      const l = [
+        lum(0,(y-1)*W+x-1), lum(0,(y-1)*W+x), lum(0,(y-1)*W+x+1),
+        lum(0,y*W+x-1),                          lum(0,y*W+x+1),
+        lum(0,(y+1)*W+x-1), lum(0,(y+1)*W+x), lum(0,(y+1)*W+x+1)
+      ];
+
+      const i00=(y-1)*W+x-1, i01=(y-1)*W+x, i02=(y-1)*W+x+1;
+      const i10=y*W+x-1,                     i12=y*W+x+1;
+      const i20=(y+1)*W+x-1, i21=(y+1)*W+x, i22=(y+1)*W+x+1;
+      const L = i => 0.299*data[i*4]+0.587*data[i*4+1]+0.114*data[i*4+2];
+
+      const gx = -L(i00) + L(i02) - 2*L(i10) + 2*L(i12) - L(i20) + L(i22);
+      const gy = -L(i00) - 2*L(i01) - L(i02) + L(i20) + 2*L(i21) + L(i22);
+      const mag = Math.min(255, Math.sqrt(gx*gx + gy*gy));
+
+      od[idx]   = 0;
+      od[idx+1] = Math.round(mag * 0.9);
+      od[idx+2] = Math.round(mag * 0.7);
+      od[idx+3] = 255;
+    }
+  }
+
+  // Blend edge over dark video
+  ctx.fillStyle = 'rgba(0,0,0,0.88)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.putImageData(out, 0, 0);
+}
+
+function renderThermal(frame, W, H) {
+  const data = frame.data;
+  const out = ctx.createImageData(W, H);
+  const od = out.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const lum = 0.299*data[i] + 0.587*data[i+1] + 0.114*data[i+2];
+    // Map lum to thermal palette: black -> blue -> cyan -> green -> yellow -> red
+    let r,g,b;
+    const v = lum / 255;
+    if (v < 0.25) { r=0; g=0; b=Math.round(v*4*200); }
+    else if (v < 0.5) { r=0; g=Math.round((v-0.25)*4*255); b=Math.round(255-(v-0.25)*4*255); }
+    else if (v < 0.75) { r=Math.round((v-0.5)*4*255); g=255; b=0; }
+    else { r=255; g=Math.round(255-(v-0.75)*4*255); b=0; }
+    od[i]=r; od[i+1]=g; od[i+2]=b; od[i+3]=255;
+  }
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0,0,W,H);
+  ctx.putImageData(out,0,0);
+}
+
+function renderMotion(frame, W, H) {
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0,0,W,H);
+  if (!prevFrame) return;
+  const data = frame.data;
+  const pdata = prevFrame.data;
+  const out = ctx.createImageData(W,H);
+  const od = out.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const dr = Math.abs(data[i]-pdata[i]);
+    const dg = Math.abs(data[i+1]-pdata[i+1]);
+    const db = Math.abs(data[i+2]-pdata[i+2]);
+    const diff = Math.min(255,(dr+dg+db)*2.5);
+    od[i]=0; od[i+1]=Math.round(diff*0.9); od[i+2]=Math.round(diff*0.6); od[i+3]=255;
+  }
+  ctx.putImageData(out,0,0);
+}
+
+function renderGhost(frame, W, H) {
+  ctx.fillStyle = 'rgba(0,0,0,0.95)';
+  ctx.fillRect(0,0,W,H);
+  // Draw dark ghost of video
+  ctx.globalAlpha = 0.15;
+  ctx.drawImage(video, 0, 0, W, H);
+  ctx.globalAlpha = 1;
+
+  // Draw cyan contours
+  const data = frame.data;
+  const out = ctx.createImageData(W,H);
+  const od = out.data;
+  for (let y=1;y<H-1;y++){
+    for(let x=1;x<W-1;x++){
+      const idx=(y*W+x)*4;
+      const L=i=>0.299*data[i*4]+0.587*data[i*4+1]+0.114*data[i*4+2];
+      const i00=(y-1)*W+x-1,i02=(y-1)*W+x+1;
+      const i10=y*W+x-1,i12=y*W+x+1;
+      const i20=(y+1)*W+x-1,i22=(y+1)*W+x+1;
+      const gx=-L(i00)+L(i02)-2*L(i10)+2*L(i12)-L(i20)+L(i22);
+      const gy=-L(i00)-2*((y-1)*W+x)+2*((y+1)*W+x)+L(i20)-L(i22);
+      const mag=Math.min(255,Math.sqrt(gx*gx+gy*gy)*0.6);
+      od[idx]=0; od[idx+1]=Math.round(mag); od[idx+2]=Math.round(mag*0.85); od[idx+3]=Math.round(mag*1.5);
+    }
+  }
+  ctx.putImageData(out,0,0);
+}
+
+// Radar
+function runRadar() {
+  const R = radarCanvas.width;
+  const cx = R/2, cy = R/2, radius = R/2-6;
+  const blips = [];
+
+  function drawRadar() {
+    rCtx.clearRect(0,0,R,R);
+    // Rings
+    rCtx.strokeStyle = 'rgba(0,255,180,0.12)';
+    rCtx.lineWidth = 1;
+    for(let r=radius/3;r<=radius;r+=radius/3) {
+      rCtx.beginPath();
+      rCtx.arc(cx,cy,r,0,Math.PI*2);
+      rCtx.stroke();
+    }
+    // Cross
+    rCtx.beginPath();
+    rCtx.moveTo(cx-radius,cy); rCtx.lineTo(cx+radius,cy);
+    rCtx.moveTo(cx,cy-radius); rCtx.lineTo(cx,cy+radius);
+    rCtx.strokeStyle = 'rgba(0,255,180,0.1)';
+    rCtx.stroke();
+
+    // Sweep trail
+    const sweep = rCtx.createConicalGradient ? null : null;
+    rCtx.save();
+    rCtx.translate(cx,cy);
+    for(let a=0;a<60;a++) {
+      const ang = radarAngle - a * 0.06;
+      rCtx.beginPath();
+      rCtx.moveTo(0,0);
+      rCtx.arc(0,0,radius,-Math.PI/2+ang, -Math.PI/2+ang+0.06);
+      rCtx.closePath();
+      rCtx.fillStyle = `rgba(0,255,180,${(60-a)/60*0.18})`;
+      rCtx.fill();
+    }
+    // Sweep line
+    rCtx.beginPath();
+    rCtx.moveTo(0,0);
+    rCtx.lineTo(Math.cos(-Math.PI/2+radarAngle)*radius, Math.sin(-Math.PI/2+radarAngle)*radius);
+    rCtx.strokeStyle = 'rgba(0,255,180,0.9)';
+    rCtx.lineWidth = 1.5;
+    rCtx.stroke();
+    rCtx.restore();
+
+    // Blips
+    if (motionLevel > 8 && Math.random() < 0.08) {
+      const ang = radarAngle;
+      const dist = (0.2 + Math.random() * 0.7) * radius;
+      blips.push({ x: cx + Math.cos(-Math.PI/2+ang)*dist, y: cy + Math.sin(-Math.PI/2+ang)*dist, age: 1.0 });
+    }
+    blips.forEach((b,i) => {
+      rCtx.beginPath();
+      rCtx.arc(b.x, b.y, 3, 0, Math.PI*2);
+      rCtx.fillStyle = `rgba(57,255,20,${b.age})`;
+      rCtx.fill();
+      b.age -= 0.008;
+    });
+    for(let i=blips.length-1;i>=0;i--) if(blips[i].age<=0) blips.splice(i,1);
+
+    // Border
+    rCtx.beginPath();
+    rCtx.arc(cx,cy,radius,0,Math.PI*2);
+    rCtx.strokeStyle = 'rgba(0,255,180,0.3)';
+    rCtx.lineWidth = 1.5;
+    rCtx.stroke();
+
+    radarAngle += 0.035;
+    requestAnimationFrame(drawRadar);
+  }
+  drawRadar();
+}
+
+// Clock
+function runClock() {
+  setInterval(() => {
+    const now = new Date();
+    document.getElementById('clock').textContent =
+      now.toTimeString().slice(0,8);
+  }, 1000);
+}
+
+// Signal bars animation
+function runSignalBars() {
+  const bars = document.querySelectorAll('.signal-bars .bar');
+  setInterval(() => {
+    bars.forEach(b => {
+      const base = motionLevel > 10 ? 40 : 20;
+      const h = base + Math.random() * (60 - base/2);
+      b.style.height = h + '%';
+    });
+  }, 350);
+}
+
+// Frequency cycle
+function freqCycle() {
+  setInterval(() => {
+    if(Math.random() < 0.08) {
+      freqIdx = (freqIdx+1) % freqs.length;
+      document.getElementById('freq-display').innerHTML = freqs[freqIdx] + '<span>GHz</span>';
+    }
+  }, 2000);
+}
+
+// Log
+const logMessages = {
+  motion: ['Body movement detected','Signal reflection shift','CSI phase change','Human presence','Motion vector: forward'],
+  idle: ['Environment stable','No reflection change','Signal nominal','Static environment']
+};
+function addLog(msg, isAlert) {
+  const log = document.getElementById('log');
+  const entry = document.createElement('div');
+  entry.className = 'log-entry' + (isAlert ? ' alert' : '');
+  const now = new Date();
+  entry.textContent = `[${now.toTimeString().slice(0,8)}] ${msg}`;
+  log.prepend(entry);
+  while(log.children.length > 12) log.removeChild(log.lastChild);
+}
+
+const objectLabels = ['Human silhouette','Moving subject','Wall reflection','Standing figure','Object cluster'];
+function updateObjects() {
+  const el = document.getElementById('object-list');
+  el.innerHTML = '';
+  const count = 1 + Math.floor(Math.random() * 2);
+  for(let i=0;i<count;i++) {
+    const span = document.createElement('span');
+    const label = objectLabels[Math.floor(Math.random()*objectLabels.length)];
+    const conf = (70 + Math.floor(Math.random()*28));
+    span.style.color = conf > 85 ? 'var(--green)' : 'rgba(0,255,180,0.7)';
+    span.textContent = `▶ ${label} (${conf}%)`;
+    el.appendChild(span);
+  }
+}
+
+// Idle log
+setInterval(() => {
+  if(!running) return;
+  if(motionLevel > 10) addLog(logMessages.motion[Math.floor(Math.random()*logMessages.motion.length)], true);
+  else addLog(logMessages.idle[Math.floor(Math.random()*logMessages.idle.length)], false);
+}, 3000);
+</script>
+</body>
+</html>
